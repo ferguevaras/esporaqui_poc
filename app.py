@@ -198,18 +198,18 @@ def h3_to_polygon(h3_id: str):
     return polygon
 
 
-def mostrar_hexagonos_en_mapa(df_top3: pd.DataFrame, titulo: str = "Mapa"):
-    if df_top3.empty:
+def mostrar_hexagonos_en_mapa(df_top10: pd.DataFrame, titulo: str = "Mapa"):
+    if df_top10.empty:
         st.warning(f"No hay hexágonos para mostrar en el mapa ({titulo}).")
         return
 
     # Validar que existe la columna h3_09
-    if "h3_09" not in df_top3.columns:
+    if "h3_09" not in df_top10.columns:
         st.error(f"La columna 'h3_09' no existe en los datos para {titulo}.")
         return
 
     # Centro del mapa
-    h3_id_centro = df_top3.iloc[0]["h3_09"]
+    h3_id_centro = df_top10.iloc[0]["h3_09"]
     try:
         lat, lon = h3.cell_to_latlng(h3_id_centro)
     except Exception as e:
@@ -218,7 +218,7 @@ def mostrar_hexagonos_en_mapa(df_top3: pd.DataFrame, titulo: str = "Mapa"):
 
     # Preparar datos para pydeck
     map_data = []
-    for _, row in df_top3.iterrows():
+    for _, row in df_top10.iterrows():
         h3_id = row["h3_09"]
         if pd.isna(h3_id) or not h3_id:
             continue
@@ -406,6 +406,69 @@ def main():
     top_n = st.sidebar.slider("Top N por variable", 10, 500, 100, step=10)
 
     # -------------------------
+    # Documentación de métodos
+    # -------------------------
+    st.header("📚 Documentación de Métodos")
+    
+    with st.expander("🔍 Método A: Filtro Jerárquico", expanded=True):
+        st.markdown("""
+        **¿Cómo funciona?**
+        
+        El Método A aplica un **filtrado jerárquico** basado en umbrales mínimos para cada categoría municipal:
+        - **Actividad Económica (AE)**: Categorías B (1), M (2), A (3), A+ (4)
+        - **Población (POB)**: Categorías B (1), M (2), A (3), A+ (4)
+        - **Afluencia Logística (AFL)**: Categorías B (1), M (2), A (3), A+ (4)
+        
+        **Proceso:**
+        1. Define umbrales mínimos para cada categoría usando los sliders
+        2. Filtra los hexágonos que cumplen **TODAS** las condiciones activas simultáneamente
+        3. Retorna todos los hexágonos que pasan el filtro (no hay ranking, solo filtrado)
+        
+        **Cuándo usarlo:** Cuando necesitas encontrar hexágonos que cumplan criterios mínimos específicos en todas las dimensiones.
+        """)
+    
+    with st.expander("⚖️ Método B: Ponderación Dinámica", expanded=True):
+        st.markdown("""
+        **¿Cómo funciona?**
+        
+        El Método B calcula un **score ponderado** combinando las tres categorías municipales con pesos personalizables:
+        
+        **Fórmula:**
+        ```
+        score = (wAE × catMunActEcon) + (wPOB × catMunPob) + (wAFL × catMunAfluLog)
+        score_norm = (score / max_score) × 100
+        ```
+        
+        **Proceso:**
+        1. Asigna pesos a cada categoría (los pesos se normalizan automáticamente)
+        2. Calcula el score ponderado para cada hexágono
+        3. Normaliza el score a una escala de 0-100
+        4. Ordena los hexágonos de mayor a menor score
+        
+        **Cuándo usarlo:** Cuando quieres priorizar ciertas dimensiones sobre otras y obtener un ranking completo de todos los hexágonos.
+        """)
+    
+    with st.expander("🎯 Método C: Intersección Top N", expanded=True):
+        st.markdown("""
+        **¿Cómo funciona?**
+        
+        El Método C identifica hexágonos que aparecen en los **Top N rankings** de múltiples variables simultáneamente:
+        - Top N en **Actividad Económica** (rankMunActEco)
+        - Top N en **Población** (rankMunPob)
+        - Top N en **Afluencia Logística** (rankMunAfluLog)
+        
+        **Proceso:**
+        1. Identifica los Top N hexágonos en cada ranking individual
+        2. Encuentra hexágonos que aparecen en **al menos 2 de los 3 rankings**
+        3. Cuenta las coincidencias (2 o 3)
+        4. Ordena por número de coincidencias (mayor a menor)
+        
+        **Cuándo usarlo:** Cuando buscas hexágonos que destacan en múltiples dimensiones simultáneamente, identificando áreas con características balanceadas y destacadas.
+        """)
+    
+    st.markdown("---")
+    
+    # -------------------------
     # Ejecutar algoritmos
     # -------------------------
     if st.button("▶ Ejecutar métodos A, B y C"):
@@ -421,10 +484,10 @@ def main():
                 min_afl=min_afl
             )
             st.write(f"Total hexágonos que cumplen filtros: {len(df_A):,}")
-            top3_A = df_A.head(3)
-            st.write("Top 3 hexágonos (primeros 3 registros):")
-            st.dataframe(top3_A)
-            mostrar_hexagonos_en_mapa(top3_A, titulo="Mapa – Top 3 Método A")
+            top10_A = df_A.head(10)
+            st.write("Top 10 hexágonos (primeros 10 registros):")
+            st.dataframe(top10_A)
+            mostrar_hexagonos_en_mapa(top10_A, titulo="Mapa – Top 10 Método A")
 
         # ----- Método B -----
         with tabB:
@@ -436,10 +499,10 @@ def main():
                 w_afl=w_afl
             )
             st.write(f"Total hexágonos evaluados: {len(df_B):,}")
-            top3_B = df_B.head(3)
-            st.write("Top 3 hexágonos por score_norm:")
-            st.dataframe(top3_B[["h3_09", "score", "score_norm"]])
-            mostrar_hexagonos_en_mapa(top3_B, titulo="Mapa – Top 3 Método B")
+            top10_B = df_B.head(10)
+            st.write("Top 10 hexágonos por score_norm:")
+            st.dataframe(top10_B[["h3_09", "score", "score_norm"]])
+            mostrar_hexagonos_en_mapa(top10_B, titulo="Mapa – Top 10 Método B")
 
         # ----- Método C -----
         with tabC:
@@ -447,10 +510,10 @@ def main():
             try:
                 df_C = metodo_C_interseccion(df_geo, top_n=top_n)
                 st.write(f"Total hexágonos con coincidencias ≥ 2: {len(df_C):,}")
-                top3_C = df_C.head(3)
-                st.write("Top 3 hexágonos por coincidencias:")
-                st.dataframe(top3_C)
-                mostrar_hexagonos_en_mapa(top3_C, titulo="Mapa – Top 3 Método C")
+                top10_C = df_C.head(10)
+                st.write("Top 10 hexágonos por coincidencias:")
+                st.dataframe(top10_C)
+                mostrar_hexagonos_en_mapa(top10_C, titulo="Mapa – Top 10 Método C")
             except ValueError as e:
                 st.error(str(e))
 
