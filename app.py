@@ -319,14 +319,81 @@ def cargar_dataset(path: str) -> pd.DataFrame:
 
 
 # ========================================================
-# 8. APP STREAMLIT
+# 8. AUTENTICACIÓN
+# ========================================================
+
+def verificar_credenciales(usuario: str, contraseña: str) -> bool:
+    """
+    Verifica las credenciales del usuario.
+    """
+    credenciales_validas = {
+        "test@efts-group.com": "123prueba"
+    }
+    return credenciales_validas.get(usuario) == contraseña
+
+
+def mostrar_pagina_login():
+    """
+    Muestra la página de inicio de sesión.
+    """
+    st.set_page_config(
+        page_title="Inicio de Sesión – #EsPorAquí",
+        layout="centered",
+    )
+    
+    # Centrar el formulario de login
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.title("🔐 Inicio de Sesión")
+        st.markdown("---")
+        
+        with st.form("login_form"):
+            usuario = st.text_input("Usuario (Email)", placeholder="usuario@ejemplo.com")
+            contraseña = st.text_input("Contraseña", type="password", placeholder="Ingresa tu contraseña")
+            submit = st.form_submit_button("Iniciar Sesión", use_container_width=True)
+            
+            if submit:
+                if not usuario or not contraseña:
+                    st.error("Por favor, completa todos los campos.")
+                elif verificar_credenciales(usuario, contraseña):
+                    st.session_state["autenticado"] = True
+                    st.session_state["usuario"] = usuario
+                    st.success("✅ Inicio de sesión exitoso!")
+                    st.rerun()
+                else:
+                    st.error("❌ Usuario o contraseña incorrectos.")
+        
+        st.markdown("---")
+        st.caption("🔒 Sistema de autenticación - #EsPorAquí")
+
+
+# ========================================================
+# 9. APP STREAMLIT
 # ========================================================
 
 def main():
+    # Verificar autenticación
+    if "autenticado" not in st.session_state:
+        st.session_state["autenticado"] = False
+    
+    if not st.session_state["autenticado"]:
+        mostrar_pagina_login()
+        return
+    
     st.set_page_config(
         page_title="#EsPorAquí – Selección de Hexágonos (Municipal)",
         layout="wide",
     )
+    
+    # Mostrar información del usuario y botón de cerrar sesión en el sidebar
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(f"**Usuario:** {st.session_state.get('usuario', 'N/A')}")
+    if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
+        st.session_state["autenticado"] = False
+        st.session_state["usuario"] = None
+        st.rerun()
+    st.sidebar.markdown("---")
 
     st.title("🔷 #EsPorAquí – Selección de Hexágonos (nivel municipal)")
     st.markdown(
