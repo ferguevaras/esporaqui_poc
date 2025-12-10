@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import pydeck as pdk
 import h3
+import folium
+from streamlit_folium import st_folium
 
 
 # ========================================================
@@ -208,74 +209,103 @@ def mostrar_hexagonos_en_mapa(df_top10: pd.DataFrame, titulo: str = "Mapa"):
         st.error(f"La columna 'h3_09' no existe en los datos para {titulo}.")
         return
 
-    # Centro del mapa
-    h3_id_centro = df_top10.iloc[0]["h3_09"]
-    try:
-        lat, lon = h3.cell_to_latlng(h3_id_centro)
-    except Exception as e:
-        st.error(f"Error al obtener coordenadas del hexágono central: {e}")
-        return
-
-    # Preparar datos para pydeck
-    map_data = []
+    # Calcular centro del mapa promediando todos los hexágonos
+    latitudes = []
+    longitudes = []
+    hexagonos_validos = []
+    
     for _, row in df_top10.iterrows():
         h3_id = row["h3_09"]
         if pd.isna(h3_id) or not h3_id:
             continue
         try:
-            poly = h3_to_polygon(str(h3_id))
-            if poly and len(poly) > 0:
-                map_data.append({
-                    "hex_id": h3_id,
-                    "polygon": poly
-                })
+            lat, lon = h3.cell_to_latlng(str(h3_id))
+            latitudes.append(lat)
+            longitudes.append(lon)
+            hexagonos_validos.append({
+                "h3_id": h3_id,
+                "lat": lat,
+                "lon": lon,
+                "row": row
+            })
+        except Exception as e:
+            st.warning(f"Error al obtener coordenadas del hexágono {h3_id}: {e}")
+            continue
+
+    if not hexagonos_validos:
+        st.warning(f"No se pudieron procesar hexágonos válidos para el mapa ({titulo}).")
+        return
+
+    # Calcular centro del mapa
+    lat_centro = np.mean(latitudes)
+    lon_centro = np.mean(longitudes)
+
+    # Crear mapa de OpenStreetMap que muestra lugares de interés
+    m = folium.Map(
+        location=[lat_centro, lon_centro],
+        zoom_start=13,
+        tiles='OpenStreetMap'
+    )
+
+    # Agregar cada hexágono al mapa
+    for idx, hex_data in enumerate(hexagonos_validos, 1):
+        h3_id = hex_data["h3_id"]
+        try:
+            # Obtener polígono del hexágono
+            poly = h3_to_polygon(h3_id)
+            
+            # Crear polígono de Folium (convertir de [lon, lat] a [lat, lon])
+            lat_hex = hex_data["lat"]
+            lon_hex = hex_data["lon"]
+            folium.Polygon(
+                locations=[[coord[1], coord[0]] for coord in poly],  # [lat, lon]
+                color='#FF0000',
+                weight=2,
+                fill=True,
+                fillColor='#FF0000',
+                fillOpacity=0.3,
+                popup=folium.Popup(
+                    f"<b>Hexágono #{idx}</b><br><b>ID H3:</b> {h3_id}<br><b>Latitud:</b> {lat_hex:.6f}<br><b>Longitud:</b> {lon_hex:.6f}",
+                    max_width=300
+                ),
+                tooltip=f"Hexágono #{idx}: {h3_id}"
+            ).add_to(m)
+            
+            # Agregar marcador numerado en el centro del hexágono
+            folium.CircleMarker(
+                location=[lat_hex, lon_hex],
+                radius=8,
+                popup=folium.Popup(
+                    f"<b>Hexágono #{idx}</b><br><b>ID H3:</b> {h3_id}<br><b>Latitud:</b> {lat_hex:.6f}<br><b>Longitud:</b> {lon_hex:.6f}",
+                    max_width=300
+                ),
+                tooltip=f"#{idx} - Lat: {lat_hex:.6f}, Lon: {lon_hex:.6f}",
+                color='#000000',
+                fill=True,
+                fillColor='#FFFFFF',
+                fillOpacity=1.0,
+                weight=2
+            ).add_to(m)
+            
+            # Agregar número en el centro
+            folium.Marker(
+                location=[lat_hex, lon_hex],
+                icon=folium.DivIcon(
+                    html=f'<div style="font-size: 12px; font-weight: bold; color: black; text-align: center; background-color: white; border-radius: 50%; width: 20px; height: 20px; line-height: 20px; border: 2px solid black;">{idx}</div>',
+                    icon_size=(20, 20),
+                    icon_anchor=(10, 10)
+                ),
+                tooltip=f"Hexágono #{idx} - Lat: {lat_hex:.6f}, Lon: {lon_hex:.6f}"
+            ).add_to(m)
+            
         except Exception as e:
             st.warning(f"Error al procesar hexágono {h3_id}: {e}")
             continue
 
-    if not map_data:
-        st.warning(f"No se pudieron procesar hexágonos válidos para el mapa ({titulo}).")
-        return
-
-    # Convertir a DataFrame para pydeck
-    df_map = pd.DataFrame(map_data)
-
-    # Crear la capa de polígonos
-    polygon_layer = pdk.Layer(
-        "PolygonLayer",
-        df_map,
-        get_polygon="polygon",
-        get_fill_color=[255, 0, 0, 120],
-        get_line_color=[0, 0, 0],
-        line_width_min_pixels=1,
-        pickable=True,
-        auto_highlight=True,
-    )
-
-    # Configurar tooltip para mostrar el ID del hexágono
-    tooltip = {
-        "html": "<b>ID:</b> {hex_id}",
-        "style": {
-            "backgroundColor": "steelblue",
-            "color": "white",
-            "fontSize": "14px",
-            "padding": "5px"
-        }
-    }
-
-    view_state = pdk.ViewState(
-        latitude=lat,
-        longitude=lon,
-        zoom=13,
-        pitch=0,
-    )
-
     st.subheader(titulo)
-    st.pydeck_chart(pdk.Deck(
-        layers=[polygon_layer],
-        initial_view_state=view_state,
-        tooltip=tooltip
-    ))
+    # Mostrar el mapa en Streamlit - OpenStreetMap ya incluye lugares de interés
+    # Usar ancho amplio para aprovechar el espacio horizontal (layout="wide" está configurado)
+    st_folium(m, width=1500, height=600, returned_objects=[])
 
 # ========================================================
 # 7. CARGA DE DATOS (CACHE)
@@ -484,9 +514,24 @@ def main():
                 min_afl=min_afl
             )
             st.write(f"Total hexágonos que cumplen filtros: {len(df_A):,}")
-            top10_A = df_A.head(10)
+            top10_A = df_A.head(10).copy()
+            
+            # Agregar latitud y longitud a la tabla
+            top10_A["latitud"] = top10_A["h3_09"].apply(lambda x: h3.cell_to_latlng(str(x))[0] if pd.notna(x) else None)
+            top10_A["longitud"] = top10_A["h3_09"].apply(lambda x: h3.cell_to_latlng(str(x))[1] if pd.notna(x) else None)
+            
             st.write("Top 10 hexágonos (primeros 10 registros):")
             st.dataframe(top10_A)
+            
+            # Botón de descarga
+            csv_A = top10_A.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Descargar Top 10 Método A (CSV)",
+                data=csv_A,
+                file_name=f"top10_metodo_A_{len(top10_A)}_hexagonos.csv",
+                mime="text/csv"
+            )
+            
             mostrar_hexagonos_en_mapa(top10_A, titulo="Mapa – Top 10 Método A")
 
         # ----- Método B -----
@@ -499,9 +544,26 @@ def main():
                 w_afl=w_afl
             )
             st.write(f"Total hexágonos evaluados: {len(df_B):,}")
-            top10_B = df_B.head(10)
+            top10_B = df_B.head(10).copy()
+            
+            # Agregar latitud y longitud a la tabla
+            top10_B["latitud"] = top10_B["h3_09"].apply(lambda x: h3.cell_to_latlng(str(x))[0] if pd.notna(x) else None)
+            top10_B["longitud"] = top10_B["h3_09"].apply(lambda x: h3.cell_to_latlng(str(x))[1] if pd.notna(x) else None)
+            
+            # Seleccionar columnas para mostrar
+            columnas_mostrar = ["h3_09", "latitud", "longitud", "score", "score_norm"]
             st.write("Top 10 hexágonos por score_norm:")
-            st.dataframe(top10_B[["h3_09", "score", "score_norm"]])
+            st.dataframe(top10_B[columnas_mostrar])
+            
+            # Botón de descarga
+            csv_B = top10_B.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Descargar Top 10 Método B (CSV)",
+                data=csv_B,
+                file_name=f"top10_metodo_B_{len(top10_B)}_hexagonos.csv",
+                mime="text/csv"
+            )
+            
             mostrar_hexagonos_en_mapa(top10_B, titulo="Mapa – Top 10 Método B")
 
         # ----- Método C -----
@@ -510,9 +572,24 @@ def main():
             try:
                 df_C = metodo_C_interseccion(df_geo, top_n=top_n)
                 st.write(f"Total hexágonos con coincidencias ≥ 2: {len(df_C):,}")
-                top10_C = df_C.head(10)
+                top10_C = df_C.head(10).copy()
+                
+                # Agregar latitud y longitud a la tabla
+                top10_C["latitud"] = top10_C["h3_09"].apply(lambda x: h3.cell_to_latlng(str(x))[0] if pd.notna(x) else None)
+                top10_C["longitud"] = top10_C["h3_09"].apply(lambda x: h3.cell_to_latlng(str(x))[1] if pd.notna(x) else None)
+                
                 st.write("Top 10 hexágonos por coincidencias:")
                 st.dataframe(top10_C)
+                
+                # Botón de descarga
+                csv_C = top10_C.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Descargar Top 10 Método C (CSV)",
+                    data=csv_C,
+                    file_name=f"top10_metodo_C_{len(top10_C)}_hexagonos.csv",
+                    mime="text/csv"
+                )
+                
                 mostrar_hexagonos_en_mapa(top10_C, titulo="Mapa – Top 10 Método C")
             except ValueError as e:
                 st.error(str(e))
